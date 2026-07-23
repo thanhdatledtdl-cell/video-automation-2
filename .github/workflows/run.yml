@@ -1,0 +1,32 @@
+name: Auto Video Pipeline
+on:
+  schedule:
+    - cron: "0 0 * * *"
+  workflow_dispatch:
+  repository_dispatch:
+    types: [new-video-row]
+jobs:
+  run-pipeline:
+    runs-on: ubuntu-latest
+    steps:
+      - name: Checkout code
+        uses: actions/checkout@v4
+      - name: Cai Python
+        uses: actions/setup-python@v5
+        with:
+          python-version: "3.11"
+      - name: Cai FFmpeg va Font
+        run: |
+          sudo apt-get update
+          sudo apt-get install -y ffmpeg fonts-dejavu
+          sudo fc-cache -f -v
+      - name: Cai thu vien Python
+        run: pip install -r requirements.txt
+      - name: Tao file service_account.json tu Secret
+        run: echo '${{ secrets.GCP_SERVICE_ACCOUNT }}' > service_account.json
+      - name: Chay script chinh
+        env:
+          OAUTH_CLIENT_ID: ${{ secrets.OAUTH_CLIENT_ID }}
+          OAUTH_CLIENT_SECRET: ${{ secrets.OAUTH_CLIENT_SECRET }}
+          OAUTH_REFRESH_TOKEN: ${{ secrets.OAUTH_REFRESH_TOKEN }}
+        run: python main.py
