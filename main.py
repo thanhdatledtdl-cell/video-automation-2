@@ -281,13 +281,13 @@ def ghep_video(audio_path, background_video, ass_path, out_path):
         f"[fgsrc]scale=1080:-2[fgvid];"
         # Ghép video gốc vào giữa nền mờ
         f"[bgblur][fgvid]overlay=(W-w)/2:(H-h)/2[bg];"
-        f"[1:v]scale=170:-1[logo];"
-        f"[bg][logo]overlay=W-w-20:20[bg2];"
+        f"[1:v]scale=220:90[logo];"
+        f"[bg][logo]overlay=(W-w)/2:40[bg2];"
         f"[bg2]drawtext=fontfile=/usr/share/fonts/truetype/dejavu/DejaVuSans-Bold.ttf:"
-        f"text='{TEXT_LIEN_HE}':fontsize=28:fontcolor=#FF8A00:"
+        f"text='{TEXT_LIEN_HE}':fontsize=26:fontcolor=#FF8A00:"
         f"borderw=2:bordercolor=black@0.8:"
-        f"box=1:boxcolor=black@0.4:boxborderw=14:"
-        f"x=(w-text_w)/2:y=60[bg3];"
+        f"box=1:boxcolor=black@0.4:boxborderw=12:"
+        f"x=(w-text_w)/2:y=145[bg3];"
         f"[bg3]subtitles=filename='{ass_path_escaped}':"
         f"fontsdir=/usr/share/fonts/truetype/dejavu[outv]"
     )
