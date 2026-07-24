@@ -14,7 +14,7 @@ import edge_tts
 
 # ==== CẤU HÌNH ====
 SHEET_ID = "1ifPFduznCQLEHpIrQR6oq0h4Rxgr-Mv4o9q1dmwgaps"
-DRIVE_OUTPUT_FOLDER_ID = "1x7Taf3IOVGdgmtPAq8qEoUkl2SE-1bQu"
+DRIVE_OUTPUT_FOLDER_ID = "1V27dj-ws6K3xQEtim-P_PhEfhsXgkJ3I"
 NGUON_VIDEO_NEN_ROOT_ID = "1q8dWz0BvylzeN8hD5AyeX0_2Rs-Zmfrm"
 
 VOICE = "vi-VN-NamMinhNeural"
@@ -155,15 +155,18 @@ async def tao_audio_va_phu_de(text, audio_path, ass_path):
         cum_list[idx] = (start, end_moi, noi_dung)
 
     # Tạo file .ass (phụ đề chữ trắng đậm, viền đen mềm, đổ bóng nhẹ — phong cách chuyên nghiệp)
+    # Khung hình chuẩn Shorts dọc 1080x1920, margin dưới đẩy lên khoảng giữa-dưới
+    # để không đè lên phần video chính (video chính chỉ chiếm phần giữa khung,
+    # phía trên/dưới là nền mờ). Chỉnh MarginV (số 650) nếu muốn phụ đề cao/thấp hơn.
     header = """[Script Info]
 ScriptType: v4.00+
-PlayResX: 1280
-PlayResY: 720
+PlayResX: 1080
+PlayResY: 1920
 WrapStyle: 0
 
 [V4+ Styles]
 Format: Name, Fontname, Fontsize, PrimaryColour, SecondaryColour, OutlineColour, BackColour, Bold, Italic, Underline, StrikeOut, ScaleX, ScaleY, Spacing, Angle, BorderStyle, Outline, Shadow, Alignment, MarginL, MarginR, MarginV, Encoding
-Style: Default,DejaVu Sans,34,&H00FFFFFF,&H00FFFFFF,&H00000000,&H00000000,-1,0,0,0,100,100,0,0,1,3,1,2,80,80,55,1
+Style: Default,DejaVu Sans,44,&H00FFFFFF,&H00FFFFFF,&H00000000,&H00000000,-1,0,0,0,100,100,0,0,1,3,1,2,60,60,650,1
 
 [Events]
 Format: Layer, Start, End, Style, Name, MarginL, MarginR, MarginV, Effect, Text
@@ -222,6 +225,9 @@ def chuan_bi_video_nen(folder_id, audio_duration, i):
         if count > 40:
             break
 
+    # Ghép nối các đoạn video nền theo khung hình ngang gốc (1280x720).
+    # Việc chuyển sang khung dọc Shorts (nền mờ + video giữa) được xử lý
+    # ở bước ghép cuối cùng trong hàm ghep_video(), không xử lý ở đây.
     concat_path = f"bgconcat_{i}.mp4"
     filter_parts = []
     for j in range(len(playlist_paths)):
@@ -243,6 +249,10 @@ def chuan_bi_video_nen(folder_id, audio_duration, i):
 
 
 # ================== GHÉP CUỐI: LOGO + CHỮ LIÊN HỆ + PHỤ ĐỀ ĐỒNG BỘ + AUDIO ==================
+# Định dạng SHORTS (dọc 1080x1920): video nền gốc (ngang) được giữ nguyên tỉ lệ,
+# thu nhỏ vừa chiều ngang 1080px và đặt CHÍNH GIỮA khung dọc; phần trống phía
+# trên/dưới được lấp bằng chính video đó phóng to + làm mờ (gblur) làm phông nền,
+# tránh crop mất nội dung 2 bên như cách crop cứng thông thường.
 
 def ghep_video(audio_path, background_video, ass_path, out_path):
     # Dùng đường dẫn tuyệt đối cho file .ass để tránh sai lệch thư mục làm việc
@@ -263,14 +273,21 @@ def ghep_video(audio_path, background_video, ass_path, out_path):
     ass_path_escaped = ass_path_abs.replace(":", r"\:")
 
     filter_complex = (
-        f"[0:v]scale=1280:720[bg];"
-        f"[1:v]scale=200:-1[logo];"
+        # Nhánh 1: nền mờ phóng to lấp đầy khung dọc 1080x1920
+        f"[0:v]split=2[bgsrc][fgsrc];"
+        f"[bgsrc]scale=1080:1920:force_original_aspect_ratio=increase,"
+        f"crop=1080:1920,gblur=sigma=25,eq=brightness=-0.05[bgblur];"
+        # Nhánh 2: video gốc giữ nguyên tỉ lệ, thu nhỏ vừa chiều ngang khung dọc
+        f"[fgsrc]scale=1080:-2[fgvid];"
+        # Ghép video gốc vào giữa nền mờ
+        f"[bgblur][fgvid]overlay=(W-w)/2:(H-h)/2[bg];"
+        f"[1:v]scale=170:-1[logo];"
         f"[bg][logo]overlay=W-w-20:20[bg2];"
         f"[bg2]drawtext=fontfile=/usr/share/fonts/truetype/dejavu/DejaVuSans-Bold.ttf:"
-        f"text='{TEXT_LIEN_HE}':fontsize=32:fontcolor=#FF8A00:"
+        f"text='{TEXT_LIEN_HE}':fontsize=28:fontcolor=#FF8A00:"
         f"borderw=2:bordercolor=black@0.8:"
         f"box=1:boxcolor=black@0.4:boxborderw=14:"
-        f"x=(w-text_w)/2:y=50[bg3];"
+        f"x=(w-text_w)/2:y=60[bg3];"
         f"[bg3]subtitles=filename='{ass_path_escaped}':"
         f"fontsdir=/usr/share/fonts/truetype/dejavu[outv]"
     )
