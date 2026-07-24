@@ -23,7 +23,7 @@ jobs:
       - name: Cai thu vien Python
         run: pip install -r requirements.txt
       - name: Tao file service_account.json tu Secret
-        run: echo '${{ secrets.GCP_SERVICE_ACCOUNT }}' > service_account.json
+        run: echo '${{ secrets.GOOGLE_SERVICE_ACCOUNT_JSON }}' | base64 --decode > service_account.json
       - name: Chay script chinh
         env:
           OAUTH_CLIENT_ID: ${{ secrets.OAUTH_CLIENT_ID }}
