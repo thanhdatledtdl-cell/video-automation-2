@@ -281,13 +281,16 @@ def ghep_video(audio_path, background_video, ass_path, out_path):
         f"[fgsrc]scale=1080:-2[fgvid];"
         # Ghép video gốc vào giữa nền mờ
         f"[bgblur][fgvid]overlay=(W-w)/2:(H-h)/2[bg];"
-        f"[1:v]scale=220:90[logo];"
-        f"[bg][logo]overlay=(W-w)/2:40[bg2];"
+        # Logo to hơn (~340x140, gấp rưỡi cũ), đẩy lên sát mép trên hơn 1 chút
+        f"[1:v]scale=340:140[logo];"
+        f"[bg][logo]overlay=(W-w)/2:55[bg2];"
+        # Chữ liên hệ to hơn (44 thay vì 26), viền dày hơn, khung nền rõ hơn,
+        # đặt ngay dưới logo với khoảng cách hợp lý (y=210)
         f"[bg2]drawtext=fontfile=/usr/share/fonts/truetype/dejavu/DejaVuSans-Bold.ttf:"
-        f"text='{TEXT_LIEN_HE}':fontsize=26:fontcolor=#FF8A00:"
-        f"borderw=2:bordercolor=black@0.8:"
-        f"box=1:boxcolor=black@0.4:boxborderw=12:"
-        f"x=(w-text_w)/2:y=145[bg3];"
+        f"text='{TEXT_LIEN_HE}':fontsize=44:fontcolor=#FF8A00:"
+        f"borderw=3:bordercolor=black@0.9:"
+        f"box=1:boxcolor=black@0.45:boxborderw=20:"
+        f"x=(w-text_w)/2:y=210[bg3];"
         f"[bg3]subtitles=filename='{ass_path_escaped}':"
         f"fontsdir=/usr/share/fonts/truetype/dejavu[outv]"
     )
