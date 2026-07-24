@@ -14,13 +14,14 @@ import edge_tts
 
 # ==== CẤU HÌNH ====
 SHEET_ID = "1ifPFduznCQLEHpIrQR6oq0h4Rxgr-Mv4o9q1dmwgaps"
-DRIVE_OUTPUT_FOLDER_ID = "1V27dj-ws6K3xQEtim-P_PhEfhsXgkJ3I"
+DRIVE_OUTPUT_FOLDER_ID = "1x7Taf3IOVGdgmtPAq8qEoUkl2SE-1bQu"
 NGUON_VIDEO_NEN_ROOT_ID = "1q8dWz0BvylzeN8hD5AyeX0_2Rs-Zmfrm"
 
 VOICE = "vi-VN-NamMinhNeural"
 LOGO_PATH = "logo.png"
 
-TEXT_LIEN_HE = "Thành Đạt Led - 0986474671 - 0924734666"
+TEXT_TEN_SHOP = "Thành Đạt Led"
+TEXT_SDT = "0986474671 - 0924734666"
 
 SO_VIDEO_NEN_MOI_LAN = (2, 3)
 SO_TU_MOI_CUM_PHU_DE = 11  # số từ mỗi cụm phụ đề hiện ra 1 lần
@@ -284,13 +285,18 @@ def ghep_video(audio_path, background_video, ass_path, out_path):
         # Logo to hơn (~340x140, gấp rưỡi cũ), đẩy lên sát mép trên hơn 1 chút
         f"[1:v]scale=340:140[logo];"
         f"[bg][logo]overlay=(W-w)/2:55[bg2];"
-        # Chữ liên hệ to hơn (44 thay vì 26), viền dày hơn, khung nền rõ hơn,
-        # đặt ngay dưới logo với khoảng cách hợp lý (y=210)
+        # Dòng 1: tên shop - màu trắng, trang trọng
         f"[bg2]drawtext=fontfile=/usr/share/fonts/truetype/dejavu/DejaVuSans-Bold.ttf:"
-        f"text='{TEXT_LIEN_HE}':fontsize=44:fontcolor=#FF8A00:"
+        f"text='{TEXT_TEN_SHOP}':fontsize=40:fontcolor=white:"
         f"borderw=3:bordercolor=black@0.9:"
-        f"box=1:boxcolor=black@0.45:boxborderw=20:"
-        f"x=(w-text_w)/2:y=210[bg3];"
+        f"box=1:boxcolor=black@0.45:boxborderw=18:"
+        f"x=(w-text_w)/2:y=205[bg2b];"
+        # Dòng 2: số điện thoại - màu vàng chóe, to hơn, nổi bật, dễ đọc/dễ gọi
+        f"[bg2b]drawtext=fontfile=/usr/share/fonts/truetype/dejavu/DejaVuSans-Bold.ttf:"
+        f"text='{TEXT_SDT}':fontsize=48:fontcolor=#FFD500:"
+        f"borderw=3:bordercolor=black@0.9:"
+        f"box=1:boxcolor=black@0.5:boxborderw=20:"
+        f"x=(w-text_w)/2:y=300[bg3];"
         f"[bg3]subtitles=filename='{ass_path_escaped}':"
         f"fontsdir=/usr/share/fonts/truetype/dejavu[outv]"
     )
