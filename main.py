@@ -14,7 +14,7 @@ import edge_tts
 
 # ==== CẤU HÌNH ====
 SHEET_ID = "1ifPFduznCQLEHpIrQR6oq0h4Rxgr-Mv4o9q1dmwgaps"
-DRIVE_OUTPUT_FOLDER_ID = "1V27dj-ws6K3xQEtim-P_PhEfhsXgkJ3I"
+DRIVE_OUTPUT_FOLDER_ID = "1x7Taf3IOVGdgmtPAq8qEoUkl2SE-1bQu"
 NGUON_VIDEO_NEN_ROOT_ID = "1q8dWz0BvylzeN8hD5AyeX0_2Rs-Zmfrm"
 
 VOICE = "vi-VN-NamMinhNeural"
