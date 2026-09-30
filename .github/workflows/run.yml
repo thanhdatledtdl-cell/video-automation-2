@@ -1,7 +1,5 @@
 name: Auto Video Pipeline
 on:
-  schedule:
-    - cron: "0 0 * * *"
   workflow_dispatch:
   repository_dispatch:
     types: [new-video-row]
