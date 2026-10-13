@@ -1,4 +1,8 @@
+edge-tts>=7.0.0
+# onnxruntime >= 1.24 từ chối model VieNeu (lỗi "External data path escapes model directory") -> ghim bản cũ hơn
+onnxruntime>=1.20.1,<1.24
+vieneu
+piper-tts
 gspread
 google-auth
 google-api-python-client
-edge-tts
