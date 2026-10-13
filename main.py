@@ -1,6 +1,8 @@
 import os
 import re
+import sys
 import json
+import time
 import random
 import unicodedata
 import asyncio
@@ -12,13 +14,31 @@ from googleapiclient.discovery import build
 from googleapiclient.http import MediaFileUpload, MediaIoBaseDownload
 import edge_tts
 
+# =====================================================================
+# CÔNG TẮC BẬT / TẮT GIỌNG ĐỌC  (đổi True <-> False rồi commit là xong)
+# Thứ tự ưu tiên: edge-tts -> VieNeu -> Piper (nguồn nào hỏng hoặc tắt thì tự bỏ qua)
+# =====================================================================
+BAT_EDGE_TTS = True    # giọng Microsoft edge-tts (phụ đề khớp từng từ). Hiện bị lỗi 403 trên GitHub, khi hết chặn sẽ tự dùng lại
+BAT_VIENEU = True      # VieNeu-TTS (miễn phí, chạy CPU)
+BAT_PIPER = True       # Piper (miễn phí, offline, dự phòng cuối)
+
 # ==== CẤU HÌNH ====
 SHEET_ID = "1ifPFduznCQLEHpIrQR6oq0h4Rxgr-Mv4o9q1dmwgaps"
 DRIVE_OUTPUT_FOLDER_ID = "1x7Taf3IOVGdgmtPAq8qEoUkl2SE-1bQu"
 NGUON_VIDEO_NEN_ROOT_ID = "1q8dWz0BvylzeN8hD5AyeX0_2Rs-Zmfrm"
 
 VOICE = "vi-VN-NamMinhNeural"
+GIONG_DU_PHONG_EDGE = "vi-VN-HoaiMyNeural"
+VIENEU_VOICE = "Hải Đăng"   # nam, Bắc (muốn giọng nữ đổi thành "Trúc Ly")
+VIENEU_PRECISION = os.environ.get("VIENEU_PRECISION", "fp32")
+PIPER_MODEL = "piper_models/vi.onnx"
+SO_LAN_THU_TTS = 3
+GIAN_CACH_TTS_GIAY = 2   # nghỉ ngắn trước mỗi lần gọi edge-tts cho đỡ bị giới hạn tần suất
 LOGO_PATH = "logo.png"
+
+_vieneu = None
+VIENEU_HONG = False
+EDGE_HONG = False   # sau khi edge-tts hỏng 1 video, bỏ qua edge-tts cho các video còn lại
 
 TEXT_TEN_SHOP = "Thành Đạt Led"
 TEXT_SDT = "0986474671 -  0867933396"
@@ -50,6 +70,10 @@ sheet = gc.open_by_key(SHEET_ID).sheet1
 
 
 # ================== TIỆN ÍCH ==================
+
+class TTSBlocked(Exception):
+    """Mọi nguồn giọng đọc đều không tạo được âm thanh."""
+
 
 def slugify_vi(text):
     text = text.lower().replace("đ", "d")
@@ -110,7 +134,7 @@ def tai_video_ve(file_id, out_path):
             status, done = downloader.next_chunk()
 
 
-# ================== TTS + PHỤ ĐỀ ĐỒNG BỘ ==================
+# ================== GIỌNG ĐỌC (edge-tts -> VieNeu -> Piper) ==================
 
 def giay_sang_ass_time(sec):
     h = int(sec // 3600)
@@ -120,10 +144,24 @@ def giay_sang_ass_time(sec):
     return f"{h}:{m:02d}:{s:02d}.{cs:02d}"
 
 
-async def tao_audio_va_phu_de(text, audio_path, ass_path):
-    communicate = edge_tts.Communicate(text, VOICE, boundary="WordBoundary")
-    submaker_words = []
+def uoc_luong_tu(text, audio_path):
+    """Không có mốc thời gian từng từ -> chia đều theo độ dài chữ trên tổng thời lượng audio."""
+    dur = get_duration(audio_path)
+    tu = text.split()
+    if not tu:
+        return []
+    trong = [len(t) + 1 for t in tu]
+    tong, t0, words = sum(trong), 0.0, []
+    for t, w in zip(tu, trong):
+        d = dur * w / tong
+        words.append((t0, t0 + d, t))
+        t0 += d
+    return words
 
+
+async def _edge_tts(text, audio_path, voice):
+    communicate = edge_tts.Communicate(text, voice, boundary="WordBoundary")
+    words = []
     with open(audio_path, "wb") as f:
         async for chunk in communicate.stream():
             if chunk["type"] == "audio":
@@ -131,8 +169,125 @@ async def tao_audio_va_phu_de(text, audio_path, ass_path):
             elif chunk["type"] == "WordBoundary":
                 start_sec = chunk["offset"] / 10_000_000
                 dur_sec = chunk["duration"] / 10_000_000
-                submaker_words.append((start_sec, start_sec + dur_sec, chunk["text"]))
+                words.append((start_sec, start_sec + dur_sec, chunk["text"]))
+    return words
 
+
+def tao_giong_vieneu(text, audio_path, voice_name):
+    """VieNeu-TTS (CPU/ONNX). Không có mốc từng từ -> phụ đề ước lượng theo độ dài chữ."""
+    global _vieneu
+    if _vieneu is None:
+        from vieneu import Vieneu
+        t0 = time.time()
+        _vieneu = Vieneu(precision=VIENEU_PRECISION)
+        print(f"[VieNeu] đã nạp model sau {time.time() - t0:.0f}s (precision={VIENEU_PRECISION})", flush=True)
+    base = audio_path.rsplit(".", 1)[0]
+    wav_path = base + "_vieneu.wav"
+    try:
+        t0 = time.time()
+        audio = _vieneu.infer(text, voice=voice_name)
+        _vieneu.save(audio, wav_path)
+        subprocess.run(
+            ["ffmpeg", "-y", "-hide_banner", "-loglevel", "error", "-i", wav_path,
+             "-ar", "44100", "-ac", "1", audio_path],
+            check=True,
+        )
+        if os.path.getsize(audio_path) < 1000:
+            raise RuntimeError("VieNeu trả audio rỗng")
+        dur = get_duration(audio_path)
+        print(f"[VieNeu] tạo {dur:.0f}s âm thanh mất {time.time() - t0:.0f}s (giọng {voice_name})", flush=True)
+        return uoc_luong_tu(text, audio_path)
+    finally:
+        if os.path.exists(wav_path):
+            os.remove(wav_path)
+
+
+def tao_giong_piper(text, audio_path):
+    """Piper (offline, miễn phí). Không có mốc từng từ -> phụ đề ước lượng theo độ dài chữ."""
+    if not os.path.exists(PIPER_MODEL):
+        raise RuntimeError("chưa có model Piper")
+    base = audio_path.rsplit(".", 1)[0]
+    txt_path, wav_path = base + "_piper.txt", base + "_piper.wav"
+    try:
+        with open(txt_path, "w", encoding="utf-8") as f:
+            f.write(text)
+        r = subprocess.run(
+            [sys.executable, "-m", "piper", "-m", PIPER_MODEL, "-c", PIPER_MODEL + ".json",
+             "-i", txt_path, "-f", wav_path],
+            capture_output=True, text=True, timeout=900,
+        )
+        if r.returncode != 0 or not os.path.exists(wav_path):
+            raise RuntimeError(f"Piper lỗi: {(r.stderr or r.stdout)[-200:]}")
+        subprocess.run(
+            ["ffmpeg", "-y", "-hide_banner", "-loglevel", "error", "-i", wav_path,
+             "-ar", "44100", "-ac", "1", audio_path],
+            check=True,
+        )
+        if os.path.getsize(audio_path) < 1000:
+            raise RuntimeError("Piper trả audio rỗng")
+        return uoc_luong_tu(text, audio_path)
+    finally:
+        for p in (txt_path, wav_path):
+            if os.path.exists(p):
+                os.remove(p)
+
+
+def tao_giong_doc(text, audio_path):
+    """Trả về danh sách (bắt đầu, kết thúc, từ). Thứ tự ưu tiên:
+    1) edge-tts (phụ đề khớp từng từ). Hỏng thì đánh dấu EDGE_HONG, các video sau khỏi thử lại.
+    2) VieNeu-TTS (miễn phí, CPU).  3) Piper (miễn phí, offline).  4) Không được thì TTSBlocked."""
+    global EDGE_HONG, VIENEU_HONG
+    co_piper = BAT_PIPER and os.path.exists(PIPER_MODEL)
+    co_vieneu = BAT_VIENEU and not VIENEU_HONG
+    voices = [VOICE, GIONG_DU_PHONG_EDGE]
+    loi = None
+
+    if BAT_EDGE_TTS and not EDGE_HONG:
+        so_lan = 2 if (co_piper or co_vieneu) else SO_LAN_THU_TTS
+        for lan in range(so_lan):
+            voice = voices[lan % len(voices)]
+            try:
+                time.sleep(GIAN_CACH_TTS_GIAY)
+                words = asyncio.run(_edge_tts(text, audio_path, voice))
+                if not os.path.exists(audio_path) or os.path.getsize(audio_path) < 1000:
+                    raise RuntimeError("audio rỗng")
+                if not words:
+                    print("[TTS] không có mốc từ, ước lượng thời gian phụ đề.", flush=True)
+                    words = uoc_luong_tu(text, audio_path)
+                return words
+            except Exception as e:
+                loi = e
+                print(f"[TTS {lan + 1}/{so_lan}] edge {voice}: {type(e).__name__}: {str(e)[:120]}", flush=True)
+                if lan < so_lan - 1:
+                    time.sleep(10 * (lan + 1))
+        EDGE_HONG = True
+        print("[TTS] edge-tts đang hỏng, các video còn lại trong lần chạy này sẽ bỏ qua edge-tts.", flush=True)
+
+    if co_vieneu:
+        try:
+            return tao_giong_vieneu(text, audio_path, VIENEU_VOICE)
+        except Exception as e:
+            loi = e
+            VIENEU_HONG = True   # lỗi 1 lần thì các video sau chuyển thẳng sang Piper
+            print(f"[TTS VieNeu] {type(e).__name__}: {str(e)[:500]} -> chuyển sang Piper", flush=True)
+
+    if co_piper:
+        try:
+            words = tao_giong_piper(text, audio_path)
+            print("[TTS] dùng Piper (giọng offline miễn phí)", flush=True)
+            return words
+        except Exception as e:
+            loi = e
+            print(f"[TTS Piper] {type(e).__name__}: {str(e)[:200]}", flush=True)
+
+    raise TTSBlocked(
+        f"mọi nguồn giọng đọc đều lỗi (edge={BAT_EDGE_TTS}, vieneu={co_vieneu}, piper={co_piper}): {str(loi)[:120]}"
+    )
+
+
+# ================== PHỤ ĐỀ ĐỒNG BỘ ==================
+
+def viet_phu_de(submaker_words, ass_path):
     # Gom từng cụm SO_TU_MOI_CUM_PHU_DE từ, lấy mốc thời gian bắt đầu/kết thúc cụm
     cum_list = []
     for idx in range(0, len(submaker_words), SO_TU_MOI_CUM_PHU_DE):
@@ -179,15 +334,11 @@ Format: Layer, Start, End, Style, Name, MarginL, MarginR, MarginV, Effect, Text
             f"Dialogue: 0,{giay_sang_ass_time(start)},{giay_sang_ass_time(end)},Default,,0,0,0,,{noi_dung_esc}"
         )
 
-    print(f"[DEBUG] So WordBoundary bat duoc: {len(submaker_words)}")
-    print(f"[DEBUG] So cum phu de: {len(cum_list)}")
+    print(f"[DEBUG] {len(submaker_words)} từ, {len(cum_list)} cụm phụ đề", flush=True)
 
     with open(ass_path, "w", encoding="utf-8") as f:
         f.write(header)
         f.write("\n".join(dong_su_kien))
-
-    with open(ass_path, encoding="utf-8") as f:
-        print(f"[DEBUG] Noi dung file .ass:\n{f.read()}")
 
 
 # ================== GHÉP NHIỀU VIDEO NỀN, XÁO TRỘN ==================
@@ -353,7 +504,14 @@ def main():
 
         audio_path = f"audio_{i}.mp3"
         ass_path = f"caption_{i}.ass"
-        asyncio.run(tao_audio_va_phu_de(text, audio_path, ass_path))
+        try:
+            words = tao_giong_doc(text, audio_path)
+        except TTSBlocked as e:
+            print(f"Không có giọng đọc nào dùng được, dừng sớm: {e}", flush=True)
+            if os.path.exists(audio_path):
+                os.remove(audio_path)
+            sys.exit(1)   # để GitHub báo ĐỎ thay vì báo xanh khi chưa dựng được video
+        viet_phu_de(words, ass_path)
         audio_duration = get_duration(audio_path)
 
         bg_concat_path = chuan_bi_video_nen(folder_id, audio_duration, i)
