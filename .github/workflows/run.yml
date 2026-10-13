@@ -3,25 +3,60 @@ on:
   workflow_dispatch:
   repository_dispatch:
     types: [new-video-row]
+
+# Chỉ chạy 1 lần tại 1 thời điểm, các lần khác (lịch, chạy tay, Sheet gửi) xếp hàng chờ
+concurrency:
+  group: video
+  cancel-in-progress: false
+
 jobs:
   run-pipeline:
     runs-on: ubuntu-latest
+    timeout-minutes: 350
     steps:
       - name: Checkout code
         uses: actions/checkout@v4
+
       - name: Cai Python
         uses: actions/setup-python@v5
         with:
           python-version: "3.11"
+
       - name: Cai FFmpeg va Font
         run: |
           sudo apt-get update
-          sudo apt-get install -y ffmpeg fonts-dejavu
+          sudo apt-get install -y ffmpeg fonts-dejavu espeak-ng
           sudo fc-cache -f -v
-      - name: Cai thu vien Python
-        run: pip install -r requirements.txt
+
+      - name: Cai thu vien Python (luon ban moi nhat de tranh loi 403 edge-tts)
+        run: pip install -U -r requirements.txt
+
+      - name: Luu cache model giong doc (do tai lai moi lan)
+        uses: actions/cache@v4
+        with:
+          path: ~/.cache/huggingface
+          key: hf-models-v2
+
+      - name: Tai model VieNeu va go symlink (tranh loi onnxruntime)
+        continue-on-error: true
+        run: |
+          python -c "from vieneu import Vieneu; Vieneu()" || true
+          find ~/.cache/huggingface/hub -type l | while read -r f; do
+            cp --remove-destination "$(readlink -f "$f")" "$f"
+          done
+
+      - name: Tai giong Piper (du phong mien phi, khong can key)
+        continue-on-error: true
+        run: |
+          mkdir -p piper_models
+          B=https://huggingface.co/rhasspy/piper-voices/resolve/v1.0.0/vi/vi_VN/vais1000/medium
+          curl -L --fail --retry 3 -o piper_models/vi.onnx "$B/vi_VN-vais1000-medium.onnx"
+          curl -L --fail --retry 3 -o piper_models/vi.onnx.json "$B/vi_VN-vais1000-medium.onnx.json"
+          ls -la piper_models
+
       - name: Tao file service_account.json tu Secret
         run: echo '${{ secrets.GOOGLE_SERVICE_ACCOUNT_JSON }}' | base64 --decode > service_account.json
+
       - name: Chay script chinh
         env:
           OAUTH_CLIENT_ID: ${{ secrets.OAUTH_CLIENT_ID }}
